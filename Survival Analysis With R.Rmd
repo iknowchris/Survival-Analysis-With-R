@@ -1,0 +1,1659 @@
+---
+title: "Surviving Survival Analyis with R"
+output: pdf_document
+---
+
+# Preface
+
+This collection of R scripts is the culmination of hours and hours of frustration. It is my way of giving back and helping those who may want to give up on R or survival analysis. This is not a theoretical guide on how to conduct survival analysis. You should buy the book (below) for that. This book should help you replicate the statistical tests, graphs, and tables found throughout the book in R. That way, you can concentrate on the concepts and less on the syntax. A word of warning- I didn't do every section of the book.
+
+I am not a biostatistician. This book will have errors, but it shouldn't have many. Please contact me if you find an error and I'll try to correct it. If you want to add to the book, email me about that too.
+
+I do not suggest using R in a survival analysis class if you have never used R before. R has a steep learning curve which is better summitted when you are not stressed out by learning the concepts in this book. If this is your first time using R, download RStudio too.
+
+The book used in my class is Survival Analysis: Techniques for Censored and Truncated Data (Second Edition) by Klein and Moeschberger. This document follows the chapters in that book.
+
+Please don't ask me to do your homework.
+
+Sincerely,
+
+Chris Webb
+
+iknowchris@gmail.com
+
+# Chapter 1: Examples of Survival Data
+
+The R packages "KMsurv" has all of the example datasets in the book. Just install the package and load it. The data() command shows the names for the datasets.
+
+```{r}
+library(KMsurv)
+data(package="KMsurv")
+```
+
+By far the easiest thing about survival analysis with R is that the datasets (at least for this book) are easy to load.
+
+
+# Chapter 2: Basic Quantiles and Models
+
+## Section 2.3: The Hazard Function
+
+### Figure 2.5 (page 29)
+
+```{r}
+time <- seq(0, 15, by=.01)
+df.weibull <- data.frame(lambda=c(0.26328, 0.1, 0.00208),
+                         alpha=c(0.5, 1, 3))
+line_1 <- df.weibull$alpha[1] * 
+          df.weibull$lambda[1] * 
+          time ^ (df.weibull$alpha[1] - 1)
+line_2 <- df.weibull$alpha[2] * 
+          df.weibull$lambda[2] * 
+          time ^ (df.weibull$alpha[2] - 1)
+line_3 <- df.weibull$alpha[3] * 
+          df.weibull$lambda[3] * 
+          time ^ (df.weibull$alpha[3] - 1)
+
+plot(x=time, y=line_1, lty=1,
+     type="l",xlim=c(0,15), ylim=c(0,1.4),
+     main="Figure 2.5",
+     xlab="Time",
+     ylab="Hazard Rate")
+lines(time, line_2, lty="longdash")
+lines(time, line_3, lty="dashed")
+```
+
+# Chapter 4: Nonparametric Estimate of Basic Quantiles for Right-Censored and Left-Censored Data
+
+Load the functions from the R survival package.
+
+```{r}
+library(survival)
+```
+
+## Section 4.2: Estimators of the Survival and Cumulative Hazard Functions for Right-Censored Data
+
+### Table 4.1A and Table 4.1B (page 93)
+
+```{r}
+data(drug6mp, package="KMsurv") # load the 6-MP dataset
+  
+# creating a model; ~1 requests an intercepts only model
+srv.fit <- survfit(Surv(drug6mp$t2, drug6mp$relapse)~1)
+
+# creates a survival table
+srv.summ <- summary(srv.fit)
+srv.summ
+```
+
+The last column in Table 4.1A is the variance. R provides the standard error, but since the variance is the standard error squared, the variance is easy to obtain.
+
+```{r}
+srv.summ$std.err^2
+```
+
+Table 4.1B includes the time where 0<= t <= 6 when survival equals 1. The survfit function only includes the survival estimate for times with an event. Otherwise, the values are the same.
+
+### Table 4.2 (page 94)
+
+The Nelson-Aalen cumulative hazard at first equals 0, then it's the number of events / pop at risk. 
+
+```{r}
+Hhat.NA <- c(0,srv.summ$n.event / srv.summ$n.risk)
+  
+# Hhat is the cumulative of the hazards
+Hhat.NA <- cumsum(Hhat.NA)
+```
+
+An alternative estimate of the cumulative hazard is the -log(S(x)). The results match the book by setting survival at t0 = 1. 
+
+```{r}    
+Hhat.PL <- -log(c(1,srv.summ$surv))
+```
+
+Calculating the variance and standard error of the Nelson-Aalen Estimator. The variance of the first row equals 0 as it represents the survival before an event. 
+
+```{r}
+variance <- c(0,srv.summ$n.event / (srv.summ$n.risk^2))
+variance <- cumsum(variance)
+se <- sqrt(variance)
+```
+
+The combined results of the above steps.
+
+```{r}
+table.4.2 <- data.frame(time=c(0,srv.summ$time),
+                        Hhat.PL, Hhat.NA, variance, se)
+table.4.2
+```
+
+### Figure 4.1B (page 96) 
+
+The biggest complication with plotting the Nelson-Aalen estimate against the Product-Limit estimates of the hazard function is the formatting. As the book plot included the time through the 40th week of the study, a time of 40 was added to the x-values. At t=40, the y-value is equal to the cumulative hazards in the last row of Table 4.2 for the respective estimates.
+
+```{r}
+plot(c(table.4.2$time, 40), 
+     c(table.4.2$Hhat.PL, 
+       table.4.2$Hhat.PL[length(table.4.2$Hhat.PL)]),
+     type="s",
+     ylab="Cumulative Hazard Function",
+     xlab="Weeks",
+     main="Figure 4.1B")
+points(c(table.4.2$time, 40), 
+       c(table.4.2$Hhat.NA, 
+         table.4.2$Hhat.NA[length(table.4.2$Hhat.NA)]),
+       type="s", lty=2)
+```
+
+### Table 4.3 (page 97)
+
+The R survfit function will calculate the Product-Limit estimate of the data. The Nelson-Aalen estimate will need to be calculated using the same formulas as in Table 4.2. The summary function doesn't show any estimates when the time=2081, but the values are exactly the same as when the time=662.
+
+```{r}
+data(bmt, package="KMsurv")
+bmt.all <- subset(bmt, group==1)
+srv.fit <- survfit(Surv(bmt.all$t2, bmt.all$d3)~1, data=bmt.all)
+srv.summ <- summary(srv.fit)
+```
+
+Calculating the Nelson-Aalen esimates of the cumulative hazard.
+
+```{r}
+Hhat.NA <- srv.summ$n.event / srv.summ$n.risk
+# Hhat is the cumulative of the hazards
+Hhat.NA <- cumsum(Hhat.NA)
+
+variance <- srv.summ$n.event / (srv.summ$n.risk^2)
+variance <- cumsum(variance)
+se <- sqrt(variance)
+```
+
+Creating a formatted Table 4.3. By default, the summary function doesn't show any estimates when the time=2081, but the values are exactly the same as when the time=662. You can set an option in summary function "censored=TRUE" (no quotes) to print all times, including censored times.
+
+```{r}
+table.4.3 <- data.frame(time    =srv.summ$time,
+                        di      =srv.summ$n.event,
+                        Yi      =srv.summ$n.risk,
+                        Surv    =srv.summ$surv,
+                        Surv.se =srv.summ$std.err,
+                        NA_est  =Hhat.NA,
+                        NA_se   =se)
+table.4.3
+```
+
+### Figure 4.2 (page 98)
+
+A plot of the three groups is simply stratifying on the group variable. Stratification will be explained in chapter 9.
+
+```{r}
+srv.fit <- survfit(Surv(bmt$t2, bmt$d3)~strata(group), data=bmt)
+plot(srv.fit, 
+     main="Figure 4.2")
+```
+
+## Section 4.3: Pointwise Confidence Intervals for the Survival Function
+
+### Table 4.4 (page 106)
+
+The R summary function can produce estimates for survival given a time or a collection of times. The linear, log, and log-log transformations are available as options in the survfit function. The R survival package does not currently implement arcsine point confidence intervals.
+
+The linear confidence interval is the default. You can explicity specify the linear confidence interval by setting conf.type="plain" or by not including the conf.type option.
+
+```{r}
+srv.fit <- survfit(Surv(bmt$t2, bmt$d3)~group, data=bmt, conf.type="plain")
+summary(srv.fit, times=365)
+```
+
+The log-transformed confidence interval is available by setting conf.type="log-log".
+
+```{r}
+srv.fit <- survfit(Surv(bmt$t2, bmt$d3)~group, data=bmt, conf.type="log-log")
+summary(srv.fit, times=365)
+```
+
+## Section 4.4: Confidence Bands for the Survival Function
+
+### Table 4.5 (page 111)
+
+The easiest way to create confidence bands is to use the ci function in the survMisc library. You may have issues with the function if you are not using an updated version of R.
+
+There is no easy way to do this in R. The function below will generate the confidence bands, but it requires that you have a lookup table file on your computer and only calculates the 95% confidence interval. If you don't want to download the .RData file, it is possible to use the original function at the link below, but it requires manually entering the aL and aU values. If you plan on using the function, please store it on your local machine and change the path to the file.
+
+The following function is derived from:
+http://www.ddiez.com/teac/surv/conf-bands.R
+
+```{r}
+# 95% CI bands around the KM survival curve
+# Function derived from, but improved upon the following code:
+#   http://www.ddiez.com/teac/surv/conf-bands.R
+conf.bands <- function(surv.object, conf.type='plain', type='ep', tL=NA, tU=NA){
+  #load("~/Google Drive/PH 1831 Survival Analysis/Homeworks/CI_95_EP_and_HW_confidence_coefficient.RData")
+  load("C:/Users/cwebb01/Downloads/CI_95_EP_and_HW_confidence_coefficient.RData")
+  s <- surv.object
+  fit <- survfit(s ~ 1)
+  n <- length(s)/2
+  time <- summary(fit)$time
+  std.err <- summary(fit)$std.err
+  surv <- summary(fit)$surv
+  if(is.na(tL)){
+    t.L <- time[1]
+  } else {
+    temp <- time[time <= tL]
+    t.L <- temp[length(temp)]
+  }
+  if(is.na(tU)){
+    t.U <- time[length(time)]
+  } else {
+    temp <- time[time <= tU]
+    t.U <- temp[length(temp)]
+  }
+  t.L.pos <- which(time == t.L)
+  t.U.pos <- which(time == t.U)
+  sigma.2 <- ( std.err / surv )^2
+  a.L <- n*sigma.2[time == t.L]/(1+n*sigma.2[time == t.L])
+  a.U <- n*sigma.2[time == t.U]/(1+n*sigma.2[time == t.U])
+  aU <- format(c(round(50*a.U)/50,0.01))[1]
+  aL <- format(c(round(50*a.L)/50,0.01))[1]
+  
+  if(type == 'hall'){
+    input <- hw.k05[aU,aL]
+    m.fact <- input*(1+n*sigma.2)/sqrt(n)
+  } else {
+    input <- ep.c05[aU,aL]
+    m.fact <- input*sqrt(sigma.2)
+  }
+  CI <- matrix(NA, length(surv), 2)
+  if(conf.type == 'log-log'){
+    theta <- exp(m.fact/log(surv))
+    CI[,1] <- (surv)^(1/theta)
+    CI[,2] <- (surv)^(theta)
+  } else if(conf.type == 'asin-sqrt'){
+    temp <- asin(sqrt(surv)) - 0.5*m.fact*sqrt(surv/(1-surv))
+    lower <- apply(cbind(rep(0, length(temp)), temp), 1, max)
+    CI[,1] <- (sin(lower))^2
+    temp <- asin(sqrt(surv)) + 0.5*m.fact*sqrt(surv/(1-surv))
+    upper <- apply(cbind(rep(pi/2, length(temp)), temp), 1, min)
+    CI[,2] <- (sin(upper))^2
+  } else {
+    CI[,1] <- surv*(1-m.fact)
+    CI[,2] <- surv*(1+m.fact)
+  }
+  CI[CI[,1] < 0, 1] <- 0
+  CI[CI[,2] > 1, 2] <- 1
+  data_to_return <- data.frame(time=time, lower=CI[,1], upper=CI[,2])
+  # subset it to the time interval requested
+  data_to_return <- subset(data_to_return, time >= t.L & time <= t.U)
+  return(data_to_return)
+}
+```
+
+Using the function above, the equal probability (EP) bands are found by calling the function conf.bands.
+
+```{r}
+data(bmt, package="KMsurv")
+bmt.all <- subset(bmt, group==1)
+bmt.surv <- Surv(bmt.all$t2, bmt.all$d3)
+
+# EP CI Linear transformation
+bmt.ep.lin <- conf.bands(bmt.surv, conf.type="plain",
+                         type="ep",
+                         tL=100,
+                         tU=600)
+names(bmt.ep.lin) <- c("time","Lin_L","Lin_U")
+
+# EP CI Log-transformed
+bmt.ep.loglog <- conf.bands(bmt.surv, conf.type="log-log",
+                         type="ep",
+                         tL=100,
+                         tU=600)
+names(bmt.ep.loglog) <- c("time","LogLog_L","LogLog_U")
+
+# EP CI Arcsine-transformed
+bmt.ep.arcsine <- conf.bands(bmt.surv, conf.type="asin-sqrt",
+                         type="ep",
+                         tL=100,
+                         tU=600)
+names(bmt.ep.arcsine) <- c("time","Arcsine_L","Arcsine_U")
+```
+
+The following code merges the above results into a nicely formatted table.
+
+```{r}
+srv.fit <- survfit((bmt.surv)~1, conf.type="plain")
+srv.summ <- summary(srv.fit)
+
+# For clean merging purposes to create the tables in the book
+srv.summ <- data.frame(time=srv.summ$time,
+                       surv=srv.summ$surv,
+                       std.err=srv.summ$std.err)
+
+
+# this limits the time in the survival probabilities to match the times
+#   outputted by the function above
+LL_time <- min(bmt.ep.lin$time)
+UL_time <- max(bmt.ep.lin$time)
+srv.summ <- subset(srv.summ, time >= LL_time & time <= UL_time)
+
+
+bmt.ep <- data.frame(time=srv.summ$time,
+                         survival=srv.summ$surv,
+                         std.err=srv.summ$std.err,
+                         Lin_LL=bmt.ep.lin$Lin_L,
+                         Lin_UL=bmt.ep.lin$Lin_U,
+                         LogLog_LL=bmt.ep.loglog$LogLog_L,
+                         LogLog_UL=bmt.ep.loglog$LogLog_U,
+                         Arcsine_LL=bmt.ep.arcsine$Arcsine_L,
+                         Arcsine_UL=bmt.ep.arcsine$Arcsine_U)
+round(bmt.ep,4) # optional rounding of the values
+```
+
+### Table 4.6 (page 111)
+
+The conf.bands funcion can also be used to obtain the Hall-Wellner confidence bands by setting type="hall".
+
+```{r}
+# Hall CI Linear transformation
+bmt.hall.lin <- conf.bands(bmt.surv, conf.type="plain",
+                         type="hall",
+                         tL=100,
+                         tU=600)
+names(bmt.hall.lin) <- c("time","Lin_L","Lin_U")
+
+# Hall CI Log-transformed
+bmt.hall.loglog <- conf.bands(bmt.surv, conf.type="log-log",
+                         type="hall",
+                         tL=100,
+                         tU=600)
+names(bmt.hall.loglog) <- c("time","LogLog_L","LogLog_U")
+
+# Hall CI Arcsine-transformed
+bmt.hall.arcsine <- conf.bands(bmt.surv, conf.type="asin-sqrt",
+                         type="hall",
+                         tL=100,
+                         tU=600)
+names(bmt.hall.arcsine) <- c("time","Arcsine_L","Arcsine_U")
+```
+
+The following code merges the above results into a nicely formatted table.
+
+```{r}
+srv.fit <- survfit((bmt.surv)~1, conf.type="plain")
+srv.summ <- summary(srv.fit)
+
+# For clean merging purposes to create the tables in the book
+srv.summ <- data.frame(time=srv.summ$time,
+                       surv=srv.summ$surv,
+                       std.err=srv.summ$std.err)
+
+
+# this limits the time in the survival probabilities to match the times
+#   outputted by the function above
+LL_time <- min(bmt.ep.lin$time)
+UL_time <- max(bmt.ep.lin$time)
+srv.summ <- subset(srv.summ, time >= LL_time & time <= UL_time)
+
+
+bmt.hall <- data.frame(time=srv.summ$time,
+                         survival=srv.summ$surv,
+                         std.err=srv.summ$std.err,
+                         Lin_LL=bmt.hall.lin$Lin_L,
+                         Lin_UL=bmt.hall.lin$Lin_U,
+                         LogLog_LL=bmt.hall.loglog$LogLog_L,
+                         LogLog_UL=bmt.hall.loglog$LogLog_U,
+                         Arcsine_LL=bmt.hall.arcsine$Arcsine_L,
+                         Arcsine_UL=bmt.hall.arcsine$Arcsine_U)
+round(bmt.hall,4) # optional rounding of the values
+```
+
+### Figure 4.5 (page 112)
+
+Figure 4.5 is simply a plot of the values from Table 4.3, 4.5, and 4.6. .
+
+```{r}
+# Survival line
+plot(table.4.3$time, table.4.3$Surv, type="s",
+     xlab="Days Post Transplant",
+     ylab="Estimated Survival Function",
+     xlim=c(100,600),
+     ylim=c(0,1),
+     main="Figure 4.5")
+
+# Pointwise confidence interval
+lines(table.4.3$time, table.4.3$Surv - 1.96*table.4.3$Surv.se,
+      type="s", lty=2)
+lines(table.4.3$time, table.4.3$Surv + 1.96*table.4.3$Surv.se,
+      type="s", lty=2)
+
+# EP linear confidence band
+lines(bmt.ep$time, bmt.ep$Lin_LL, type="s", lty=6)
+lines(bmt.ep$time, bmt.ep$Lin_UL, type="s", lty=6)
+
+# Hall-Wellner confidence band
+lines(bmt.hall$time, bmt.hall$Lin_LL, type="s", lty=5)
+lines(bmt.hall$time, bmt.hall$Lin_UL, type="s", lty=5)
+```
+
+## Section 4.5: Point and Interval Estimates of the Mean and Median Survival Time
+
+### Example 4.1 (page 118-119)
+
+Using the print.rmean=TRUE option in the print function will provide the mean time to relapse and the standard error.
+
+```{r}
+data(drug6mp, package="KMsurv") # load the 6-MP dataset
+srv.fit <- survfit(Surv(drug6mp$t2, drug6mp$relapse)~1)
+print(srv.fit, print.rmean=TRUE)
+```
+
+### Example 4.2 (page 120-121)
+
+The standard R function to determine the confidence interval around the median does not produce the same CI as the book. That's because R interpolates the median CI and then rounds to the nearest valid time. So, I used the standard R function to determine the median, but wrote my own function to determine the confidence interval.
+
+Here is a function to determine a 95% confidence interval around the median of a survival table.
+
+```{r}
+median_conf_95 <- function(df.surv){
+  # calculate z-statistic
+  df.results$z_lin <- (df.results$surv - (1-0.5))/df.results$std.err
+  df.results$z_log <- ((log(-log(df.results$surv)) - log(-log(1-.5)))*
+                         (df.results$surv * log(df.results$surv))) / (df.results$std.err)
+  
+  study_time_min <- df.results[1,"time"]
+  study_time_max <- df.results[nrow(df.results),"time"]
+  # subset survival data by bounds of z-value
+  df.results.lin <- subset(df.results, z_lin >= -1.96 & z_lin <= 1.96)
+  df.results.log <- subset(df.results, z_log >= -1.96 & z_log <= 1.96)
+  # formatted data to return
+  data_to_return <- data.frame(lin_ll = NA, lin_ul = NA, log_ll = NA, log_ul = NA)
+  # Calculate confidence interval if bounds are possible
+  if((df.results.lin[1,"time"] > study_time_min) |
+       (df.results.lin[1,"z_lin"] == -1.96)){
+    data_to_return$lin_ll <- df.results.lin[1,"time"]
+  }
+  if((df.results.lin[nrow(df.results.lin),"time"] < study_time_max) |
+       (df.results.lin[nrow(df.results.lin),"z_lin"] == 1.96)){
+    data_to_return$lin_ul <- df.results.lin[nrow(df.results.lin),"time"]
+  }
+  if((df.results.log[1,"time"] > study_time_min) |
+       (df.results.log[1,"z_log"] == -1.96)){
+    data_to_return$log_ll <- df.results.log[1,"time"]
+  }
+  if((df.results.log[nrow(df.results.log),"time"] < study_time_max) |
+       (df.results.log[nrow(df.results.log),"z_log"] == 1.96)){
+    data_to_return$log_ul <- df.results.log[nrow(df.results.log),"time"]
+  }  
+  return(data_to_return)
+}
+```
+
+The median for the linear confidence interval can be found by printing the survfit object.
+
+```{r}
+bmt.all <- subset(bmt, group == 1)
+srv.fit <- survfit(Surv(t2, d3)~group, data=bmt.all, conf.type="plain") 
+print(srv.fit)
+```
+
+Similarly, the median for the log transformation can be found by setting conf.type="log-log".
+
+```{r}
+srv.fit <- survfit(Surv(t2, d3)~group, data=bmt.all, conf.type="log-log")
+print(srv.fit)
+```
+
+Using the function above will give a confidence interval that matches the book. A value of NA means that the limit is undetermined.
+
+```{r}
+results <- summary(srv.fit)
+df.results <- data.frame(time=results$time,
+                         surv=results$surv,
+                         std.err=results$std.err)
+
+results <- median_conf_95(df.results)
+results
+```
+
+# Chapter 5: Estimate of Basic Quantities for Other Sampling Schemes
+
+## Section 5.4: Estimation of Survival in the Cohort Life Table
+
+### Table 5.6 (page 156)
+
+Life tables are very easy to create in R. Set them up and the lifetab function will do all of the hard work for you.
+
+```{r}
+tis <- c(0, 2, 3, 5, 7, 11, 17, 25, 37, 53, NA)
+nsubs <- c(927, 848, 774, 649, 565, 449, 296, 186, 112, 27)
+nlost <- c(2, 3, 6, 9, 7, 5, 3, rep(0, 3))
+nevent <- c(77, 71, 119, 75, 109, 148, 107, 74, 85, 27)
+life_table <- lifetab(tis, nsubs[1], nlost, nevent)
+life_table
+```
+
+### Figure 5.3 (page 157)
+
+Table 5.6 provides the hazard estimate at the middle of the time interval. The lifetab function does not provide those values, so you need to calculate them. This dataset is small, so you could just do this by hand. The calculation below involves a simple average.
+
+```{r}
+life_table$time1 <- as.numeric(sapply(strsplit(row.names(life_table),"-"), "[", 1))
+life_table$time2 <- as.numeric(sapply(strsplit(row.names(life_table),"-"), "[", 2))
+life_table$time_middle <- (life_table$time1 + life_table$time2) /2 
+  
+plot(life_table$time_middle, life_table$hazard,
+     type="s",
+     xlab="Time in Waiting (Weeks)",
+     ylab="Estimated Hazard Rate",
+     xlim=c(0,50),
+     ylim=c(0.03, 0.09),
+     main="Figure 5.3")
+```
+
+# Chapter 7: Hypothesis Testing
+
+## Section 7.3: Tests for Two or More Samples
+
+### Example 7.2 (page 209)
+
+The survdiff function in R will perform a two sample log-rank test, but it provides the chi-squared value and not the $Z_{obs}$ value. The differences shouldn't matter.
+
+```{r}
+data(kidney, package="KMsurv")
+results <- survdiff(Surv(time, delta)~type, data=kidney, rho=0)
+results
+```
+
+The comp function in the survMisc package will calculate the $Z_{obs}$ value, but the p-value needs to be converted to a two-sample test. The Log-rank $Z_{obs}$ value is the Q value.
+
+Additionally, the comp function provides all of the information necessary to construct Table 7.2 and most of Table 7.3.
+
+```{r}
+library(survMisc)
+kidney.fit <- survfit(Surv(time, delta)~type, data=kidney)
+kidney.comp <- comp(kidney.fit)
+kidney.comp$tests$supTests
+```
+
+### Figure 7.1 (page 209)
+
+Simple plot of the survival function. Notice how the curves cross.
+
+```{r}
+plot(kidney.fit, cex=0,
+     xlab="Time (in Months) to Exit Site Infection",
+     ylab="Estimated Survival Functions",
+     main="Figure 7.1")
+```
+
+### Table 7.2 (page 210)
+
+Use the results from the comp function to obtain most of the information in Table 7.2. The rest is easy to calculate. The data returned from the comp function were renamed and reordered so they may be easier to use and understand.
+
+```{r}
+results <- data.frame(kidney.comp$tne)
+names(results) <- c("t","Yi","di","Yi2","di2","Yi1","di1")
+results <- results[,c("t","Yi1","di1","Yi2","di2","Yi","di")]
+results$Yi1_calc <- results$Yi1*(results$di/results$Yi)
+results$obs_m_exp <- results$di1 - results$Yi1_calc
+results$var <- (results$Yi1/results$Yi)*(1-(results$Yi1/results$Yi))*
+                  ((results$Yi - results$di)/(results$Yi-1))*results$di
+round(results, 3)
+```
+
+The $Z_{obs}$ value and variance are the sums of their respective columns
+
+```{r}
+sum(results$obs_m_exp)
+sum(results$var)
+```
+
+### Table 7.3 (page 210)
+
+The comp function easily provides most of the two-sample tests in Table 7.3.
+
+```{r}
+kidney.comp$tests$lrTests
+```
+
+## Section 7.5: Stratified Tests
+
+### Example 7.7 (page 220)
+
+The book is in error, the value for Z should equal 0.363 with a resulting p-value of 0.717.
+
+```{r}
+z <- (3.1062 - 2.3056) / sqrt(1.5177 + 3.3556)
+z
+p_value <- 2*(1-pnorm(z))
+p_value
+```
+
+The survdiff function will easily calculate perform a stratified test, but it will produce a chi-squared value instead of the z-score.
+
+```{r}
+data(hodg, package="KMsurv")
+survdiff(Surv(time, delta)~strata(gtype) + dtype, data=hodg)
+```
+
+In order to find the stratified z-score, perform the same methods from Table 3, but on the data subsetted by disease type.
+
+Since the stratification calculation is repetitive, a function will clean up the code.
+
+```{r}
+log_rank_z <- function(comp_results){
+  results <- data.frame(comp_results$tne)
+  names(results) <- c("t","Yi","di","Yi2","di2","Yi1","di1")
+  results <- results[,c("t","Yi1","di1","Yi2","di2","Yi","di")]
+  results$Yi1_calc <- results$Yi1*(results$di/results$Yi)
+  results$obs_m_exp <- results$di1 - results$Yi1_calc
+  results$var <- (results$Yi1/results$Yi)*(1-(results$Yi1/results$Yi))*
+                    ((results$Yi - results$di)/(results$Yi-1))*results$di
+  return(data.frame(z=sum(results$obs_m_exp),
+                    var=sum(results$var)))
+}
+
+```
+
+Non-Hodgkin lymphoma stratification values.
+
+```{r}
+hodg.non <- subset(hodg, dtype==1)
+hodg.fit <- survfit(Surv(time, delta)~gtype, data=hodg.non)
+log_rank_z(comp(hodg.fit))
+```
+
+Hodgkins disease stratification values.
+
+```{r}
+hodg.hodg <- subset(hodg, dtype==2)
+hodg.fit <- survfit(Surv(time, delta)~gtype, data=hodg.hodg)
+log_rank_z(comp(hodg.fit))
+```
+
+### Example 7.4 (page 220)
+
+When a study is matched, the discordant pairs are the only observations of interest. With a small trial and few observations this is easy to calculate manually or with the computer.
+
+```{r}
+data(drug6mp, package="KMsurv")
+drug6mp$D1_yes <- ifelse((drug6mp$t1 - drug6mp$t2) < 0, 1, 0)
+drug6mp$D2_yes <- ifelse((drug6mp$t1 - drug6mp$t2) > 0, 1, 0)
+D1 <- sum(drug6mp$D1_yes)
+D2 <- sum(drug6mp$D2_yes)
+D1
+D2
+```
+
+The test statistic is:
+
+```{r}
+z <- (D1-D2)/sqrt(D1+D2)
+z
+p_value <- 2*(1-pnorm(z))
+p_value
+```
+
+# Chapter 8: Semiparametric Proportional Hazards Regression with Fixed Covariates
+
+## Section 8.1: Coding Covariates
+
+### Example 8.1 (page 247)
+
+The btrail dataset is coded for immunohistochemical response as a 1 or 2. Normally, categorical is coded as a 0 or 1. Recoding isn't necessary because setting im as a factor effectively treats the value as a 0 or 1.
+
+The summary function provides both the beta coefficients and the hazard ratios. The beta coefficients are similar to the book's values, but not exactly the same.
+
+```{r}
+data(btrial)
+btrial.cox <- coxph(Surv(time, death)~factor(im), data=btrial)
+summary(btrial.cox)
+```
+
+### Example 8.2 (page 248-249)
+
+If you treat stage as a factor, R will automatically create the appropriate dummy variables. However, creating the coding for Z1, Z2, and Z3 is simple affair. 
+
+```{r}
+data(larynx)
+larynx.cox <- coxph(Surv(time, delta)~factor(stage), data=larynx)
+summary(larynx.cox)
+```
+
+Explicitly recoding the Z1, Z2, Z3 variables provides the exact same results.
+
+```{r}
+larynx$z1 <- ifelse(larynx$stage == 2, 1, 0)
+larynx$z2 <- ifelse(larynx$stage == 3, 1, 0)
+larynx$z3 <- ifelse(larynx$stage == 4, 1, 0)
+larynx.cox <- coxph(Surv(time, delta)~z1 + z2 + z3, data=larynx)
+summary(larynx.cox)
+```
+
+By treating stage as if it were continuous, the scores test is the log rank test when there aren't any ties. Again, the results are similar, but not exactly the same as those in the book.
+
+```{r}
+larynx.cox <- coxph(Surv(time, delta)~stage, data=larynx)
+summary(larynx.cox)
+```
+
+### Example 8.2 (page 250)
+
+Age is treated as continuous, so no modification is need to add the variable to the Cox model.
+
+```{r}
+larynx.cox <- coxph(Surv(time, delta)~factor(stage) + age, data=larynx)
+summary(larynx.cox)
+```
+
+### Example 8.3 (page 252)
+
+The interaction term z1 is simply result of multiplying variable z1 and z2.
+
+```{r}
+data(kidtran, package="KMsurv")
+kidtran$z1 <- kidtran$gender - 1
+kidtran$z2 <- kidtran$race - 1
+kidtran$z3 <- kidtran$z1 * kidtran$z2
+kidtran.cox <- coxph(Surv(time, delta)~ z1 + 
+                                        z2 + 
+                                        z3, data=kidtran)
+summary(kidtran.cox)
+```
+
+## Partial Likelihoods When Ties Are Present
+
+### Example 8.3 (page 260)
+
+The coxph function can perform the Efron, Breslow, and discrete methods for handling ties. Efron's method is used by default.
+
+Breslow's Likelihood
+
+```{r}
+data(kidney, package="KMsurv")
+kidney.cox <- coxph(Surv(time, delta)~type, data=kidney, ties="breslow")
+summary(kidney.cox)  
+```
+
+Efron's Likelihood (default method with coxph, but called explicitly here)
+
+```{r}
+kidney.cox <- coxph(Surv(time, delta)~type, data=kidney, ties="efron")
+summary(kidney.cox)
+```
+
+Discrete Likelihood
+
+```{r}
+kidney.cox <- coxph(Surv(time, delta)~type, data=kidney, ties="exact")
+summary(kidney.cox) 
+```
+
+### Example 8.2 (page 262)
+
+Another example of global tests of a Cox proportional hazards model.
+
+```{r}
+data(larynx)
+larynx$z1 <- ifelse(larynx$stage==2, 1, 0)
+larynx$z2 <- ifelse(larynx$stage==3, 1, 0)
+larynx$z3 <- ifelse(larynx$stage==4, 1, 0)
+larynx.cox <- coxph(Surv(time, delta)~z1 + z2 + z3, data=larynx, ties="breslow")
+summary(larynx.cox)
+```
+
+## Section 8.5: Local Tests
+
+### Example 8.2 (page 264-265)
+
+To calculate any local tests, first use the coxph function to obtain the estimates and variance-covariance matrix for model with all covariates.
+
+```{r}
+larynx$z4 <- larynx$age
+larynx.cox <- coxph(Surv(time, delta)~z1 + z2 + z3 + z4, 
+                        data=larynx, ties="breslow")
+```
+
+To perform the likelihood ratio tests, the likelihood of the full and reduced models are needed.
+
+```{r}
+larynx.full <- summary(larynx.cox)
+
+larynx.cox.small <- coxph(Surv(time, delta)~ z4, 
+                          data=larynx, ties="breslow")
+larynx.small <- summary(larynx.cox.small)
+
+
+# Likelihood ratio test
+chi_sq <- 2*(larynx.full$loglik[2] - larynx.small$loglik[2])
+chi_sq
+pchisq(chi_sq, df=3, lower.tail=FALSE)
+```
+
+The local Wald test is relatively easy to calculate with a little matrix math. Since the variables of interest (z1, z2, z3) are the first three variables in the Cox model, the vector of coefficients and variance-covariance matrix only includes information corresponding to the first three variables.
+
+Formula 8.5.1 (page 264)
+
+```{r}
+m.coef <- t(as.matrix(larynx.cox$coef))
+m.var <-  as.matrix(larynx.cox$var)
+chi_sq <- m.coef[1:3] %*% solve(m.var[1:3,1:3]) %*% m.coef[1:3]
+chi_sq
+pchisq(chi_sq, , df=3, lower.tail=FALSE)
+```
+
+The local score test is much more difficult to calculate. Examining the locScore function code was critical in determining the process for calculating the correct score statistic. 
+
+1) First, calculate the coefficient from a model with only z4.
+2) Create the U vector and feed that into a cox model for initial values
+3) set the number of iterations to zero
+4) Take the column sums of the scores available in coxph.detail
+
+```{r}
+U <- c(0,0,0,larynx.cox.small$coef)
+U
+cox.scores <- coxph(Surv(time, delta)~z1 + z2 + z3 + z4, 
+                        data=larynx,
+                        ties="breslow",
+                        init=U,
+                        iter.max=0)
+score_vector <- colSums(coxph.detail(cox.scores)$score)
+score_vector
+```
+
+Matrix math provides the score statistic
+
+```{r}
+chi_sq <- score_vector %*% cox.scores$var %*% score_vector
+chi_sq
+pchisq(chi_sq, , df=3, lower.tail=FALSE)
+```
+
+There is a substantially easier method to perform local tests in R using the survMisc library. The function locScore, locLR, and locWald will calculate the appropriate test. The locScore test calculates the correct chi-square test statistic, but has an incorrect number of degrees of freedom.
+
+```{r}
+larynx.cox <- coxph(Surv(time, delta)~z1 + z2 + z3 + z4, 
+                        data=larynx, ties="breslow")
+locLR(larynx.cox, hypo=c(0,0,0,1))
+locWald(larynx.cox, hypo=c(1,1,1,0))
+locScore(larynx.cox, hypo=c(0,0,0,1))
+```
+
+### Table 8.1 (page 267)
+
+The table results are almost identical to the results from the summary function. Except that the table reports the chi-square statistic instead of the z-score.
+
+```{r}
+summary(larynx.cox)
+```
+
+### Example 8.2 (page 267)
+
+To obtain the risk of death for a stage III patient relative to a stage II patient, the estimates and variance-covariance matrix is needed.
+
+```{r}
+rr.estimate <- larynx.cox$coefficients[[2]] - larynx.cox$coefficients[[1]]
+rr.estimate
+
+# 95% Confidence interval:
+rr.variance <- larynx.cox$var[2,2] + larynx.cox$var[1,1] - 2*larynx.cox$var[2,1]
+rr.se <- sqrt(rr.variance)
+c(rr.estimate - 1.96*rr.se, rr.estimate + 1.96*rr.se)
+```
+
+### Example 8.2 (page 268)
+
+The likelihood ratio test for the hypothesis that $\beta_1 = \beta_2 = \beta_3$ is calculated by comparing the log likelihood of the full model with a model where z_star = 1 if the patient is in any stage other than stage I.
+
+```{r}
+larynx$z_star <- ifelse(larynx$stage > 1, 1, 0)
+
+# Full model
+larynx.cox <- coxph(Surv(time, delta)~factor(stage) + age, data=larynx, ties="breslow")
+larynx.full <- summary(larynx.cox)
+
+# Model with z_star
+larynx.cox_2 <- coxph(Surv(time, delta)~z_star + age, data=larynx, ties="breslow")
+larynx.small <- summary(larynx.cox_2)
+
+# Likelihood ratio test
+chi_sq <- 2*(larynx.full$loglik[2] - larynx.small$loglik[2])
+chi_sq
+pchisq(chi_sq, df=2, lower.tail=FALSE)
+```
+
+## Section 8.7: Model Building Using the Proportional Hazards Model
+
+### Example 8.5 (page 278)
+
+There is a fair amount of variable recoding necessary for this section.
+
+```{r}
+data(bmt, package="KMsurv")
+
+# AML Risk group
+bmt$z_1 <- ifelse(bmt$group == 2, 1, 0)
+bmt$z_2 <- ifelse(bmt$group == 3, 1, 0)
+
+# Waiting Time
+bmt$z_3 <- bmt$z7
+
+# FAB classification
+bmt$z_4 <- bmt$z8
+
+# MTX
+bmt$z_5 <- bmt$z10
+
+# Sex
+bmt$z_6 <- bmt$z4
+bmt$z_7 <- bmt$z3
+bmt$z_8 <- bmt$z3 * bmt$z4
+
+# CMV status
+bmt$z_9 <- bmt$z6
+bmt$z_10 <- bmt$z5
+bmt$z_11 <- bmt$z6 * bmt$z5
+
+# Age
+bmt$z_12 <- bmt$z1 - 28
+bmt$z_13 <- bmt$z2 - 28
+bmt$z_14 <- bmt$z_12 * bmt$z_13
+```
+
+A global Wald test for a model with just AML risk groups is available with the summary function. The AIC function can provide the Akaike information criterion statistic.
+
+```{r}
+bmt.cox <- coxph(Surv(t2, d3)~z_1 + z_2 , data=bmt, ties="breslow")
+summary(bmt.cox)
+AIC(bmt.cox)
+```
+
+### Table 8.6 (page 278)
+
+Table 8.6 is the result of repetitively creating Cox models with various potential confounders with a model that always includes z_1 and z_2. When you can do one, you can do them all. Below is only the waiting time values for Table 8.6.
+
+```{r}
+# Waiting time
+bmt.cox <- coxph(Surv(t2, d3)~z_1 + z_2 + z_3, data=bmt, ties="breslow")
+summary(bmt.cox)
+AIC(bmt.cox)
+```
+
+The wald.test function in the aod library gives a really easy local wald test.
+
+```{r}
+library(aod)
+wald.test(b = coef(bmt.cox), Sigma = vcov(bmt.cox), Terms = 3)
+```
+
+### Table 8.7 (page 279)
+
+Table 8.7 is similar to Table 8.6 except that all models include z_1, z_2 and z_4 (FAB class). Below is only the waiting time values for Table 8.7.
+
+```{r}
+# Waiting time
+bmt.cox <- coxph(Surv(t2, d3)~z_1 + z_2 + z_4 + z_3, data=bmt, ties="breslow")
+summary(bmt.cox)
+AIC(bmt.cox)
+wald.test(b = coef(bmt.cox), Sigma = vcov(bmt.cox), Terms = 4)
+```
+
+## Section 8.8: Estimation of the Survival Function
+
+### Figure 8.3 (page 285)
+
+The first step to constructing the graph is to find the baseline survival function by using the coxph function.
+
+```{r}
+data(larynx, package="KMsurv")
+larynx$z1 <- ifelse(larynx$stage==2, 1, 0)
+larynx$z2 <- ifelse(larynx$stage==3, 1, 0)
+larynx$z3 <- ifelse(larynx$stage==4, 1, 0)
+larynx.cox <- coxph(Surv(time, delta)~z1 + z2 + z3 + age, data=larynx, ties="breslow")
+```
+
+Determine the baseline survival function for each stage by creating a new model using the appropriate values for the covariates. So, someone with Stage 1 cancer has z1=z2=z3=0 and age=60.
+
+```{r}
+larynx.survfit.1 <- survfit(larynx.cox, 
+                            newdata=data.frame(age=60, z1=0, z2=0, z3=0))
+larynx.survfit.2 <- survfit(larynx.cox,
+                            newdata=data.frame(age=60, z1=1, z2=0, z3=0))
+larynx.survfit.3 <- survfit(larynx.cox,
+                            newdata=data.frame(age=60, z1=0, z2=1, z3=0))
+larynx.survfit.4 <- survfit(larynx.cox,
+                            newdata=data.frame(age=60, z1=0, z2=0, z3=1))
+```
+
+Plot the resulting survival curves for a 60 year old male.
+
+```{r}
+plot(larynx.survfit.1$time, larynx.survfit.1$surv, type="s",
+     xlab="Years",
+     ylab="Esimated Survival Function",
+     xlim=c(0,8),
+     ylim=c(0,1),
+     main="Figure 8.3")
+lines(larynx.survfit.2$time, larynx.survfit.2$surv, type="s", lty=2)
+lines(larynx.survfit.3$time, larynx.survfit.3$surv, type="s", lty=3)
+lines(larynx.survfit.4$time, larynx.survfit.4$surv, type="s", lty=4)
+```
+
+# Chapter 9: Refinements of the Semiparametric Proportional Hazards Model
+
+## Section 9.2: Time-Dependent Covariates
+
+### Table 9.1 (page 299)
+
+The coding follows the convention from Example 8.5 on page 278. The key to time-dependent covariates is data manipulation. For time-dependent covariates, the data needs to be in a "(start, stop]" format where each line represents a time interval between event(for example: time at start of study, death, censoring time, time to a time-dependent covariate, time at the end of the study). Each person will have a set of (start, stop] times that collectively will include all of the times that a person was in a study. An id variable is used to associate each individual's (start, stop] times.
+
+The beta coefficients from the section are very close to the book results, but differ by minor amounts. The reason for the difference is unknown.
+
+Create the (stop, start] format dataset.
+
+```{r}
+# Creating the id variable
+bmt$id <- row.names(bmt)
+
+# Subsetting the bmt datafile to keep it clean
+bmt.sub <- subset(bmt, select=c(id, t2,d3,ta,da,tc,dc, tp, dp))
+
+
+bmt.long <- tmerge(data1=bmt.sub,data2=bmt.sub,
+                id=id,
+                dis_free = event(t2,d3),
+                aGVHD=tdc(ta),
+                cGVHD=tdc(tc),
+                p_recover=tdc(tp))
+```
+
+Merging the long form of the dataset to the bmt dataset that contains all of the coded covariates.
+
+```{r}
+bmt.sub <- subset(bmt, select=c(id, z_1, z_2, z_3, z_4, z_5,
+                                    z_6, z_7, z_8, z_9, z_10,
+                                    z_11, z_12, z_13, z_14))
+
+bmt.long <- merge(x=bmt.long, y=bmt.sub, by="id")
+```
+
+Calculating the values for Table 9.1. The results are similar, but not exactly the same.
+
+```{r}
+coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + aGVHD, data=bmt.long, ties="breslow")
+coxph(Surv(tstart, tstop, dis_free)~z_1 + z_2 + cGVHD, data=bmt.long, ties="breslow")
+coxph(Surv(tstart, tstop, dis_free)~z_1 + z_2 + p_recover, data=bmt.long, ties="breslow")
+```
+
+### Table 9.2 (page 300)
+
+Fixed Factor Only
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + 
+                                                  z_13 + z_14, data=bmt.long, ties="breslow")
+model.cox
+model.cox$loglik
+```
+
+Time-Dependent Factor
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + 
+                                                  p_recover, data=bmt.long, ties="breslow")
+model.cox
+model.cox$loglik
+```
+
+All Factors
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  p_recover, data=bmt.long, ties="breslow")
+model.cox
+model.cox$loglik
+```
+
+### Table 9.3 (page 301)
+
+Interactions between fixed-time and time-dependent factors
+
+```{r}
+bmt.long$z__7  <- bmt.long$z_1 * bmt.long$p_recover   # group * platlet recovery
+bmt.long$z__8  <- bmt.long$z_2 * bmt.long$p_recover   # group * platlet recovery
+bmt.long$z__9  <- bmt.long$z_4 * bmt.long$p_recover   # FAB * platlet recovery
+bmt.long$z__10 <- bmt.long$z_12 * bmt.long$p_recover  # Age * platlet recovery
+bmt.long$z__11 <- bmt.long$z_13 * bmt.long$p_recover  # Age * platlet recovery
+bmt.long$z__12 <- bmt.long$z_14 * bmt.long$p_recover  # Age * platlet recovery
+```
+
+Group, FAB, age, platelet recovery
+
+```{r}
+
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  p_recover, data=bmt.long, ties="breslow")
+model.cox$loglik 
+```
+
+Group, FAB, age, platelet recovery, group*platelet
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 + 
+                                                  z__7 + z__8 + p_recover, data=bmt.long,
+                                                  ties="breslow")
+model.cox$loglik # Group, FAB, age, platelet recovery, group*platelet
+```
+
+Group, FAB, age, platelet recovery, FAB*platelet
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 + 
+                                                  z__9 + p_recover, data=bmt.long,
+                                                  ties="breslow")
+model.cox$loglik 
+```
+
+Group, FAB, age, platelet recovery, age*platelet
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  z__10 + z__11 + z__12 + p_recover,
+                                                  data=bmt.long, ties="breslow")
+model.cox$loglik 
+```
+
+### Table 9.4 (page 302)
+
+The covariates (z1-z12) have been reclassified since their initial determination in section 8.5. What is now z3 was z4. The variable names were not updated to reflect this new information. Other differences are the book uses the Wald chi-square statistic.
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  z__7 + z__8 + z__9 + z__10 + z__11 +
+                                                  z__12 + p_recover, data=bmt.long,
+                                                  ties="breslow")
+model.cox$loglik
+summary(model.cox)
+```
+
+### Example 9.2 (page 303)
+
+Creating an artificial time-dependent covariate to test the proportional hazards assumption.
+
+```{r}
+data(kidney, package="KMsurv")
+kidney$placement <- kidney$type - 1
+
+kidney.cox <- coxph(Surv(time, delta) ~ placement + tt(placement),
+                    data=kidney, ties="breslow",
+                    tt = function(x, t, ...) x * log(t))
+summary(kidney.cox)
+wald.test(b=coef(kidney.cox), Sigma=vcov(kidney.cox), Terms=2)
+```
+
+## Section 9.3: Stratified Proportional Hazards Models
+
+### Table 9.7 (page 309)
+
+To specify a stratified model in R, use the strata() command.
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 +
+                                                  z_14 + p_recover + strata(z_5),
+                                                  data=bmt.long, ties="breslow")
+model.cox
+```
+
+### Table 9.8 (page 310)
+
+To create the stratified covariates, subset the (start, stop] format dataset by MTX group. There are difference in the coefficients between the results in R and Table 9.8.
+
+No MTX
+
+```{r}
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  p_recover, subset(bmt.long, z_5==0), 
+                                                  ties="breslow")
+model.cox
+```
+
+MTX
+
+```{r}
+bmt.nomtx <- subset(bmt.long, z_5 ==0)
+model.cox <- coxph(Surv(tstart, tstop, dis_free)~ z_1 + z_2 + z_4 + z_12 + z_13 + z_14 +
+                                                  p_recover, subset(bmt.long, z_5==1), 
+                                                  ties="breslow")
+model.cox
+```
+
+# Chapter 11: Regression Diagnostics
+
+## Section 11.2: Cox-Snell Residuals for Assessing the Fit of a Cox Model
+
+### Figure 11.1 (page 356)
+
+```{r}
+data(bmt, package="KMsurv")
+
+bmt$z_1 <- bmt$z2 - 28                  # Patient Age
+bmt$z_2 <- bmt$z1 - 28                  # Donor Age
+bmt$z_3 <- bmt$z_1 * bmt$z_2
+
+bmt$z_4 <- ifelse(bmt$group == 2, 1, 0) # 1=AML low-risk
+bmt$z_5 <- ifelse(bmt$group == 3, 1, 0) # 1=AML high-risk
+bmt$z_6 <- bmt$z8                       # 1=FAB Grade 4 or 5
+bmt$z_7 <- bmt$z7                       # waiting time
+bmt$z_8 <- bmt$z10                      # MTX used
+
+bmt.surv <- Surv(bmt$t2,bmt$d3)
+bmt.cox <- coxph(Surv(t2,d3)~z_1 + z_2 + z_3 + z_4 + z_5 + z_6 + 
+                             z_7 + z_8, data=bmt, ties="breslow")
+```
+
+Plotting the Cox-Snell residuals. The plot() function in the survival package can plot a cumulative hazard function by using the fun="cumhaz" option.
+
+```{r}
+bmt.coxsnell <- bmt$d3-resid(bmt.cox,type="martingale")
+bmt.res <- survfit(coxph(Surv(bmt.coxsnell, bmt$d3)~1, method='breslow'),
+                   type='aalen')
+   
+plot(bmt.res, fun="cumhaz",
+     xlab="Residual",
+     ylab="Estimated Cumulative Hazard Rate",
+     conf.int=FALSE, cex=0,
+     main="Figure 11.1")
+abline(a=0, b=1 , col='red',lty=2)  
+```
+
+### Figure 11.2 (page 357)
+
+Qingxia Chen provded R code to create Figure 11.2 online. The following is a modification of the information found at: http://biostat.mc.vanderbilt.edu/wiki/pub/Main/QingxiaChen/Ch11.pdf
+
+Plotting the Cox-Snell residuals separarely by MTX group means subsetting the residuals calculated for the full model by MTX group.
+
+```{r}
+MTX_0 <- bmt$z_8 == 0
+MTX_1 <- bmt$z_8 == 1
+
+# No MTX group
+fitres.m1 <- survfit(coxph(Surv(bmt.coxsnell[MTX_0],bmt$d3[MTX_0])~1,method="breslow"),
+                     type="aalen")
+
+# MTX group
+fitres.m2 <- survfit(coxph(Surv(bmt.coxsnell[MTX_1],bmt$d3[MTX_1])~1,method="breslow"),
+                     type="aalen")
+```
+
+Using the fun="cumhaz" option for the No MTX group plots the cumulative hazard function. Since the lines() function doesn't have this option, the cumulative hazard is found by taking the negative logarithm of the survival function.
+
+```{r}
+plot(fitres.m1, 
+     fun="cumhaz",
+     xlab="Residual",
+     ylab="Estimated Cumulative Hazard Rates",
+     conf.int=FALSE, cex=0,
+     xlim=c(0,3), ylim=c(0,3),
+     main="Figure 11.2")
+
+lines(fitres.m2$time, -log(fitres.m2$surv), type="s", lty=2)
+abline(a=0, b=1 , col='red',lty=2)  
+```
+
+### Figure 11.3 (page 358)
+
+To plot Figure 11.3, first fit a stratified Cox model. Like the procedure for Figure 11.2, subset the residuals by MTX group.
+
+```{r}
+bmt.cox <- coxph(Surv(t2,d3)~ z_1 + z_2 + z_3 + z_4 + z_5 + z_6 + z_7 +
+                              strata(z_8), data=bmt, ties="breslow")
+bmt.coxsnell <- bmt$d3 - resid(bmt.cox, type="martingale")
+
+# Using the the residuals calculated for stratified MTX, but only using the ones per group
+MTX_0 <- bmt$z_8 == 0
+MTX_1 <- bmt$z_8 == 1
+
+fitres.m1 <- survfit(coxph(Surv(bmt.coxsnell[MTX_0],bmt$d3[MTX_0])~1,method="breslow"),
+                     type="aalen")
+fitres.m2 <- survfit(coxph(Surv(bmt.coxsnell[MTX_1],bmt$d3[MTX_1])~1,method="breslow"),
+                     type="aalen")
+```
+
+The plot is slightly different than the book. The No MTX group extends above the sloped 
+
+```{r}
+plot(fitres.m1, 
+     fun="cumhaz",
+     xlab="Residual",
+     ylab="Estimated Cumulative Hazard Rates",
+     conf.int=FALSE, cex=0,
+     xlim=c(0,3), ylim=c(0,3),
+     main="Figure 11.3")
+
+lines(fitres.m2$time, -log(fitres.m2$surv), type="s", lty=2)
+abline(a=0, b=1 , col='red',lty=2)  
+```
+
+## Section 11.3: Determining the Functional Form of a Covariate: Martingale Residuals
+
+### Figure 11.4 (page 361)
+
+The LOWESS smoothing function is available with the lowess() function in R.
+
+```{r}
+data(hodg, package="KMsurv")
+
+hodg.cox <- coxph(Surv(time, delta)~ wtime + factor(dtype) + factor(gtype) +
+                                     score, data=hodg, method='breslow')
+
+plot(hodg$wtime, resid(hodg.cox),
+     xlab="Waiting Time to Transplant (months)",
+     ylab="Martingale Residuals",
+     main='Figure 11.4')
+lines(lowess(hodg$wtime, resid(hodg.cox)),col='red')
+```
+
+## Section 11.4: Graphical Checks of the Proportional Hazards Assumption
+
+### Figure 11.5 (page 364)
+
+The log cumulative hazard rates by the type of transplant is simple to plot.
+
+```{r}
+data(alloauto, package="KMsurv")
+
+# Allogenic
+allo.sub <- subset(alloauto, type==1)
+fit.m1 <- survfit(coxph(Surv(time,delta)~1, data=allo.sub, method='breslow'),
+                  type='aalen')
+
+# Autologous
+allo.sub <- subset(alloauto, type==2)
+fit.m2 <- survfit(coxph(Surv(time,delta)~1, data=allo.sub, method='breslow'),
+                  type='aalen')
+
+fit.m1.cumhaz <- data.frame(time=fit.m1$time, lcumhaz=log(fit.m1$cumhaz))
+fit.m2.cumhaz <- data.frame(time=fit.m2$time, lcumhaz=log(fit.m2$cumhaz))
+
+plot(fit.m1.cumhaz$time, fit.m1.cumhaz$lcumhaz, lty=1,type="s",
+     xlim=c(0,25), ylim=c(-4, 0),
+     xlab="Time on Study",
+     ylab="Log Cumulative Hazard Rates",
+     main="Figure 11.5")
+lines(fit.m2.cumhaz$time, fit.m2.cumhaz$lcumhaz, lty=2,type="s")
+```
+
+### Figure 11.6 (page 365)
+
+There is probably an easier way to create this plot. It's easy to conceptualize. Take the plots in Figure 11.5 and calculate the distance (the difference) between the two lines.
+
+Two functions were created to solve this problem. The first determines the cumulative hazard at a specific time.
+
+The second function returns the cumulative hazard at all times.
+
+```{r}
+get_L_Cum_Hazard <- function(survf, time){
+        if (min(survf$time) != 0){
+          tmp <- data.frame(time=0,
+                          cum_hazard=-Inf)
+          tmp <- rbind(tmp, data.frame(time=survf$time,
+                          cum_hazard=survf$lcumhaz))
+        } else{
+          tmp <- data.frame(time=survf$time,
+                            cum_hazard=survf$lcumhaz)
+        }
+        tmp <- tmp[tmp$time <= time,]
+        tmp <- tmp[order(tmp$time),] 
+        return(tmp[nrow(tmp),"cum_hazard"])
+}
+
+get_L_Cum_Hazards <- function(survf, time){
+  data_to_return <- data.frame(time=numeric(),
+                               l_cumhaz=numeric())
+  for (j in 1:length(time)){
+    data_to_return <- rbind(data_to_return,
+                            data.frame(time=time[j],
+                                       l_cumhaz=get_L_Cum_Hazard(survf,time[j])))
+  }
+  return(data_to_return)
+}
+
+
+# Get all times with data from both models
+all_times <- sort(unique(c(fit.m1.cumhaz$time, fit.m2.cumhaz$time)))
+
+# Get the cumulative hazards for each model at all times
+fit.m1.haz <- get_L_Cum_Hazards(fit.m1.cumhaz, all_times)
+fit.m2.haz <- get_L_Cum_Hazards(fit.m2.cumhaz, all_times)
+
+# Create a dataset with cumulative hazards
+haz.dif <- data.frame(time=all_times)
+haz.dif <- merge(haz.dif, fit.m1.haz)
+haz.dif <- merge(haz.dif, fit.m2.haz, by="time")
+names(haz.dif) <- c("time","m2", "m1")
+    
+# The difference in the cumulative hazards
+haz.dif$dif <- haz.dif$m1 - haz.dif$m2
+```
+
+Plot the differences in the cumulative hazards
+
+```{r}
+plot(haz.dif$time, haz.dif$dif, type="s",
+     xlim=c(0,25), ylim=c(-1.5,1),
+     xlab="Time on Study",
+     ylab="Difference in Log Cumulative Hazard Rates",
+     main="Figure 11.6")
+abline(a=0, b=0,col='red')
+```
+
+### Figure 11.7 (page 366)
+
+An Anderson plot is a plot of cumulative hazards against each other.
+
+```{r}
+plot(exp(haz.dif$m2), exp(haz.dif$m1), type="s",
+     xlim=c(0,1), ylim=c(0,1),
+     xlab="Allo",
+     ylab="Auto",
+     main="Figure 11.7")
+abline(a=0, b=1,col='red')
+```
+
+### Figure 11.17 (page 377)
+
+The type="schoenfeld" option in the residual function will provide the appropriate residuals. Then they need to be ordered and standardized. 
+
+```{r}
+data(alloauto)
+allo.cox <-coxph(Surv(time,delta)~ factor(type), data=alloauto, method='breslow')
+
+scores <- resid(allo.cox, type="schoenfeld")
+df.scores <- data.frame(time=as.numeric(names(scores)),
+                        scores=scores)
+df.scores <- df.scores[order(df.scores$time),]
+df.scores$cum_s <- cumsum(df.scores$scores)
+df.scores$stan_s <- sqrt(allo.cox$var) * df.scores$cum_s
+
+plot(df.scores$time, df.scores$stan_s, type="l",
+     ylim=c(-2,2), xlim=c(0,60),
+     xlab="Time on Study",
+     ylab="Standardized Score",
+     main="Figure 11.17")
+abline(a=1.3581, b=0,col='red')
+abline(a=-1.3581, b=0,col='red')
+abline(a=0, b=0,col='black')
+```
+
+## Section 11.5: Deviance Residuals
+
+### Example 11.2 (page 382)
+
+The coefficient values below and those in the book are slightly different. The book also reports time to death in months, but the dataset only provides values in days. A rudimentary conversion of days to months was made by dividing by 30.
+
+```{r}
+data(hodg, package="KMsurv")
+hodg$z_2 <- ifelse(hodg$dtype==2, 0, hodg$dtype)
+hodg$z_1 <- hodg$gtype-1
+hodg$z_5 <- ifelse(hodg$wtime >= 84, 1, 0)
+hodg$z_3 <- hodg$z_1 * hodg$z_2
+hodg$z_4 <- hodg$score
+hodg$time_months <- round(hodg$time / 30, 1)
+
+hodg <- hodg[order(hodg$time),]
+hodg$id <- 1:nrow(hodg)
+rownames(hodg) <- hodg$id
+
+
+hodg.cox <- coxph(Surv(time,delta)~ factor(z_1) + factor(z_2) +
+                      z_3 + z_4 + factor(z_5), data=hodg, method='breslow')
+hodg.cox
+```
+
+### Figure 11.21 (page 384)
+
+Using the type="deviance" option in the resid() function will provide the deviance residuals.
+
+```{r}
+plot(hodg.cox$linear.predictor, resid(hodg.cox,type='deviance'),
+     xlab="Risk Score",
+     ylab="Deviance Residuals",
+     main='Figure 11.21')
+```
+
+## Section 11.6: Checking the Influence of Individual Observations
+
+### Figure 11.22 (page 388)
+
+To find the exact values for the score residuals, first find the beta values for a Cox regression with the complete dataset.
+
+Second, perform N-1 regressions. Each regression removes one observation. The actual residual is the difference between the betas from the complete dataset and the betas from the smaller dataset.
+
+```{r}
+# Cox model for all observations
+hodg.cox <- coxph(Surv(time,delta)~ factor(z_1) + factor(z_2) +
+                      z_3 + z_4 + factor(z_5), data=hodg, method='breslow')
+b_0 <- hodg.cox$coef
+
+# Cox model removing the ith observation
+b_bj <- data.frame(id=numeric(),d1=numeric(),d2=numeric(),
+                   d3=numeric(),d4=numeric(),d5=numeric())
+
+for (i in 1:nrow(hodg)){
+  hodg.cox.bj <- coxph(Surv(time,delta)~ factor(z_1) + factor(z_2) +
+                      z_3 + z_4 + factor(z_5), 
+                      data=subset(hodg, id !=i), method='breslow')
+  b_bj <- rbind(b_bj,
+                data.frame(id=i,
+                           d1=hodg.cox$coef[1]-hodg.cox.bj$coef[1],
+                           d2=hodg.cox$coef[2]-hodg.cox.bj$coef[2],
+                           d3=hodg.cox$coef[3]-hodg.cox.bj$coef[3],
+                           d4=hodg.cox$coef[4]-hodg.cox.bj$coef[4],
+                           d5=hodg.cox$coef[5]-hodg.cox.bj$coef[5]))
+}
+```
+
+The estimated score residuals are found by taking multiplying the score residuals by the variance-covariance matrix.
+
+```{r}
+residuals <- resid(hodg.cox, type="score")
+var <- hodg.cox$var
+score_s <- residuals %*% var
+```
+
+Plot the residuals.
+
+```{r}
+plot(rownames(hodg), b_bj$d1,
+     ylim=c(-0.4, 0.7), xlim=c(0,43), pch=3, cex=0.6,
+     xlab="Observation Number",
+     ylab="beta-beta(j)",
+     main="Figure 11.22")
+points(rownames(hodg), score_s[,1], cex=0.6, pch=1)
+abline(0,0,lty=2,col='red')
+```
+
+# Chapter 12: Inference for Parametric Regression Models
+
+## Section 12.2: Weibull Distribution
+
+### Example 12.1 (page 397)
+
+Estimates using the Weibull distribution need to be transformed.
+
+Autologous
+
+```{r}
+data(alloauto, package="KMsurv")
+
+allo.sub <- subset(alloauto, type==2)
+auto.reg <- survreg(Surv(time, delta)~1, data=allo.sub, dist="weibull")
+lambda <- exp(-(auto.reg$coefficients[1]) / auto.reg$scale)
+alpha <- 1/auto.reg$scale
+
+lambda
+alpha
+
+# variance-Covariance Matrix
+auto.reg$var
+
+# proper variance for scale
+auto.reg$var[2,2]*auto.reg$scale^2
+
+# Log likelihood for Auto group
+auto.loglik.w <- auto.reg$loglik[1]
+```
+
+Allogeneic
+
+```{r}
+data(alloauto, package="KMsurv")
+
+allo.sub <- subset(alloauto, type==1)
+allo.reg <- survreg(Surv(time, delta)~1, data=allo.sub, dist="weibull")
+lambda <- exp(-(allo.reg$coefficients[1]) / allo.reg$scale)
+alpha <- 1/allo.reg$scale
+
+lambda
+alpha
+
+# variance-Covariance Matrix
+allo.reg$var
+
+# proper variance for scale
+allo.reg$var[2,2]*allo.reg$scale^2
+
+# Log likelihood for Allo group
+allo.loglik.w <-allo.reg$loglik[1]
+```
+
+Exponential model for Allo and Auto data
+
+```{r}
+# allogenic
+allo.sub <- subset(alloauto, type==1)
+allo.reg <- survreg(Surv(time, delta)~1, data=allo.sub, dist="exponential")
+allo.loglik.e <- allo.reg$loglik[1]
+
+# autologous
+allo.sub <- subset(alloauto, type==2)
+auto.reg <- survreg(Surv(time, delta)~1, data=allo.sub, dist="exponential")
+auto.loglik.e <- auto.reg$loglik[1]
+```
+
+Likelihood ratio tests for Weibull and Exponential models
+
+Allogenic
+
+```{r}
+chi_sq <- -2*(allo.loglik.e - allo.loglik.w)
+pchisq(chi_sq, df=1, lower.tail=FALSE)
+```
+
+Autologous
+
+```{r}
+chi_sq <- -2*(auto.loglik.e - auto.loglik.w)
+pchisq(chi_sq, df=1, lower.tail=FALSE)
+```
+
+Much of the rest of the important things in chapter 12 can be found in the document: http://www.math.wustl.edu/~jmding/math434/ParametricR.R
+
+
