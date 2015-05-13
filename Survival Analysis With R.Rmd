@@ -1679,3 +1679,19 @@ pchisq(chi_sq, df=1, lower.tail=FALSE)
 Much of the rest of the important things in chapter 12 can be found in the document: http://www.math.wustl.edu/~jmding/math434/ParametricR.R
 
 
+# Replicating the Results in This Book
+
+This book uses the following R packages. Bolded packages are not part of standard R distributions and need to be installed if you are planning on using their functions.
+
+* Packages Used:
+    + survival
+    + **KMsurv**
+    + **survMisc**
+    + **RCurl**
+    + **aod**
+
+Current R version-
+
+```{r}
+sessionInfo()
+```
