@@ -226,8 +226,6 @@ http://www.ddiez.com/teac/surv/conf-bands.R
 # Function derived from, but improved upon the following code:
 #   http://www.ddiez.com/teac/surv/conf-bands.R
 conf.bands <- function(surv.object, conf.type='plain', type='ep', tL=NA, tU=NA){
-  #load("~/Google Drive/PH 1831 Survival Analysis/Homeworks/CI_95_EP_and_HW_confidence_coefficient.RData")
-  load("C:/Users/cwebb01/Downloads/CI_95_EP_and_HW_confidence_coefficient.RData")
   s <- surv.object
   fit <- survfit(s ~ 1)
   n <- length(s)/2
@@ -286,7 +284,31 @@ conf.bands <- function(surv.object, conf.type='plain', type='ep', tL=NA, tU=NA){
 }
 ```
 
-Using the function above, the equal probability (EP) bands are found by calling the function conf.bands.
+First, download two csv files that contain the lookup tables for the 95% confidence intervals. The data is found in Appendix C. Most of the difficulty in downloading the data is due knitr's (the program that creates this book) issues with downloading from https sites.
+
+```{r}
+library(RCurl)
+ep.webpage <- paste0("http://raw.githubusercontent.com/iknowchris/",
+                  "Survival-Analysis-With-R/master/EP_C05.csv")
+hw.webpage <- paste0("http://raw.githubusercontent.com/iknowchris/",
+                     "Survival-Analysis-With-R/master/HW_k05.csv")
+
+data <- getURL(ep.webpage, ssl.verifypeer=0L, followlocation=1L)
+ep.c05 <- as.matrix(read.csv(text=data))
+
+data <- getURL(hw.webpage, ssl.verifypeer=0L, followlocation=1L)
+hw.k05 <- as.matrix(read.csv(text=data))
+
+hw.col.names <- format(seq(from=0.00, to=.6, by=0.02), 2)
+
+colnames(ep.c05) <- format(seq(from=0.02, to=.6, by=0.02), 2)
+rownames(ep.c05) <- format(seq(from=0.10, to=.98, by=0.02), digits=2)
+
+colnames(hw.k05) <- format(seq(from=0.00, to=.6, by=0.02), 2)
+rownames(hw.k05) <- format(seq(from=0.10, to=1, by=0.02), digits=2)
+```
+
+The equal probability (EP) bands are found by calling the conf.bands functions above.
 
 ```{r}
 data(bmt, package="KMsurv")
